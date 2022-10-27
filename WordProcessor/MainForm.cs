@@ -1,5 +1,8 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
+using System.Web;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using WordProcessor.Controls.ListViewEx;
 using WordProcessor.Data.Contracts;
 using WordProcessor.Data.Entities;
@@ -8,12 +11,13 @@ using WordProcessor.Extensions;
 
 namespace WordProcessor
 {
+	[SuppressMessage("ReSharper", "PossibleMultipleEnumeration")]
 	public partial class MainForm : Form
 	{
 		private readonly IWordRepository _wordRepository;
 
-		private readonly string[] _separatorList = { " ", ",", ":", ";", "\v", "\n", "\r", "\r\n" };
-		private readonly char[] _punctuationSigns = { '.', ',', ':', ';', '!', '?', '@', '(', ')', '-', '–', '—' };
+		private readonly string[] _separatorList = { " ", "\v", "\n", "\r", "\r\n" };
+		private readonly IList<char> _punctuationSigns = new List<char>() { '.', ',', ':', ';', '!', '?', '@', '(', ')', '-', '–', '—', '=', '_', '*', '/', '\\', '|', '«', '»' };
 
 		private const char WhitespaceSymbol = ' ';
 		private const int ListBoxVerticalOffset = 20;
@@ -47,6 +51,9 @@ namespace WordProcessor
 
 			// To compensate slow first query
 			var _ = _wordRepository.GetCloseWords(_wordInProcess, HintWordsQuantity).FirstOrDefault();
+			
+			_wordRepository.RemoveAll();
+			_wordRepository.CommitChangesAsync();
 
 			InitializeComponent();
 
@@ -95,7 +102,11 @@ namespace WordProcessor
 		private string GetWordInProcess()
 		{
 			var textBeforeCursorPosition = RichTextBox.Text[..CursorPosition];
-			var words = textBeforeCursorPosition.Split(_separatorList, StringSplitOptions.None);
+
+			var separators = _punctuationSigns.Select(symbol => symbol.ToString()).ToList();
+			separators.AddRange(_separatorList);
+
+			var words = textBeforeCursorPosition.Split(separators.ToArray(), StringSplitOptions.None);
 
 			return words.Last();
 		}
@@ -500,32 +511,43 @@ namespace WordProcessor
 		}
 
 		/// <summary>
-		/// Configure words via unique items
+		/// Create dummy word
 		/// </summary>
-		/// <param name="allItems"></param>
-		/// <param name="uniqueWords"></param>
+		/// <param name="content"></param>
 		/// <returns></returns>
-		private IEnumerable<Word> ConfigureWords(ICollection<string> allItems, IList<string> uniqueWords)
+		private Word CreateDummyWord(string content) => new() { Content = content, };
+
+		/// <summary>
+		/// Configure words with considering already configured words
+		/// </summary>
+		/// <param name="items"></param>
+		/// <param name="configuredWords"></param>
+		/// <returns></returns>
+		private IEnumerable<Word> ConfigureWords(IEnumerable<string> items, IEnumerable<Word>? configuredWords = null)
 		{
 			var words = new List<Word>();
-			foreach (var uniqueWord in uniqueWords)
+
+			if (configuredWords is not null)
+				words.AddRange(configuredWords);
+
+			words.AddRange(items.Select(CreateDummyWord));
+
+			var uniqueWords = words.DistinctBy(word => word.Content);
+			foreach (var word in uniqueWords)
 			{
-				var count = allItems.Count(item => item == uniqueWord);
-				var isSuitableCount = count >= 3;
-				if (!isSuitableCount)
-					continue;
+				var count = items.Count(item => item == word.Content);
 
-				var frequency = (double)count / allItems.Count;
-				var word = new Word()
-				{
-					Content = uniqueWord,
-					Frequency = frequency * 100000
-				};
+				var isConfiguredWord = word.Count > 0;
+				if (isConfiguredWord)
+					count += word.Count;
 
-				words.Add(word);
+				word.Count = count;
+				word.Frequency = (double)count / items.Count() * 1000;
 			}
 
-			return words;
+			var suitableWords = uniqueWords.Where(word => word.Count >= 3);
+
+			return suitableWords;
 		}
 
 		/// <summary>
@@ -533,26 +555,27 @@ namespace WordProcessor
 		/// </summary>
 		/// <param name="filename"></param>
 		/// <returns></returns>
-		private async Task<IEnumerable<Word>> ParseWordsFromFile(string filename)
+		private async Task<IEnumerable<string>> ParseWordsFromFile(string filename)
 		{
 			var text = await File.ReadAllTextAsync(filename, Encoding.UTF8);
 
-			var combinedSeparators = _punctuationSigns.Select(symbol => symbol.ToString()).ToList();
-			combinedSeparators.AddRange(_separatorList);
+			// Decode html symbols
+			text = HttpUtility.HtmlDecode(text);
+			text = Regex.Replace(text, @"(\s*)?&nbsp;(\s*)?", string.Empty);
 
-			var additionalSymbols = new List<string>() { "&nbsp;", "=", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
-			combinedSeparators.AddRange(additionalSymbols);
+			var separators = _punctuationSigns.Select(symbol => symbol.ToString()).ToList();
+			separators.AddRange(_separatorList);
 
-			var items = text.ToLower().Split(combinedSeparators.ToArray(), StringSplitOptions.RemoveEmptyEntries);
-			var uniqueItems = items.Distinct().ToList();
+			var digitalSymbols = new List<string>() { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+			separators.AddRange(digitalSymbols);
 
-			var words = ConfigureWords(items, uniqueItems);
+			var items = text.ToLower().Split(separators.ToArray(), StringSplitOptions.RemoveEmptyEntries);
 
-			return words;
+			return items;
 		}
 
 		/// <summary>
-		/// Handle create word dictionary command 
+		/// Handle create word dictionary command
 		/// </summary>
 		/// <param name="sender"></param>
 		/// <param name="eventArgs"></param>
@@ -563,14 +586,15 @@ namespace WordProcessor
 				return;
 
 			var words = await ParseWordsFromFile(filename);
-
-			//var validationSummary = words.Aggregate(true, (current, word) => current & (string.IsNullOrEmpty(word.Content) && word.Frequency > 0));
-			//if (!validationSummary)
-			//	return;
+			var validationSummary = words.Aggregate(true, (current, word) => current & !string.IsNullOrEmpty(word));
+			if (!validationSummary)
+				return;
 
 			_wordRepository.RemoveAll();
 
-			await _wordRepository.AddRangeAsync(words);
+			var configuredWords = ConfigureWords(words);
+
+			await _wordRepository.AddRangeAsync(configuredWords);
 			await _wordRepository.CommitChangesAsync();
 
 			MessageBox.Show(@"Words dictionary is loaded.");
@@ -578,27 +602,20 @@ namespace WordProcessor
 
 		/// <summary>
 		/// Handle update word dictionary command
+		/// 
 		/// </summary>
 		/// <param name="sender"></param>
 		/// <param name="eventArgs"></param>
 		private async void UpdateDictionaryCommand_Click(object sender, EventArgs eventArgs)
 		{
-			var currentWordsContent = _wordRepository.GetAll().Select(word => word.Content).ToList();
-
-			_wordRepository.RemoveAll();
+			var currentWordsContent = _wordRepository.GetAll();
 
 			var filename = GetFilename();
 			var wordsFromFile = await ParseWordsFromFile(filename);
 
-			var wordsContentFromFile = wordsFromFile.Select(word => word.Content);
+			var correctedWords = ConfigureWords(wordsFromFile, currentWordsContent);
 
-			currentWordsContent.AddRange(wordsContentFromFile);
-
-			var uniqueWords = currentWordsContent.Distinct().ToList();
-
-			var correctedWords = ConfigureWords(currentWordsContent, uniqueWords);
-
-			await _wordRepository.AddRangeAsync(correctedWords);
+			_wordRepository.UpdateRange(correctedWords);
 			await _wordRepository.CommitChangesAsync();
 
 			MessageBox.Show(@"Words dictionary is updated.");

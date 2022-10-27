@@ -22,9 +22,9 @@ namespace WordProcessor
 			using var serviceScope = builder.Services.CreateScope();
 			var databaseContext = serviceScope.ServiceProvider.GetRequiredService<DatabaseContext>();
 
-			//var areThereAnyPendingMigrations = databaseContext.Database.GetPendingMigrations().Any();
-			//if (areThereAnyPendingMigrations)
-			//	databaseContext.Database.Migrate();
+			var areThereAnyPendingMigrations = databaseContext.Database.GetPendingMigrations().Any();
+			if (areThereAnyPendingMigrations)
+				databaseContext.Database.Migrate();
 
 			var serviceProvider = serviceScope.ServiceProvider;
 

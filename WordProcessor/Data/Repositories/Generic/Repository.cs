@@ -1,9 +1,11 @@
 ﻿using System.Linq.Expressions;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
 using WordProcessor.Data.Contracts;
 
 namespace WordProcessor.Data.Repositories.Generic
 {
+	[SuppressMessage("ReSharper", "PossibleMultipleEnumeration")]
 	public abstract class Repository<T> : IRepository<T>
 		where T : class
 	{
@@ -22,30 +24,15 @@ namespace WordProcessor.Data.Repositories.Generic
 			return item;
 		}
 
-		public IEnumerable<T> GetAll()
-		{
-			return DbSet.AsEnumerable();
-		}
+		public IEnumerable<T> GetAll() => DbSet.AsEnumerable();
 
-		public IEnumerable<T> Query(Expression<Func<T, bool>> filter)
-		{
-			return DbSet.Where(filter);
-		}
+		public IEnumerable<T> Query(Expression<Func<T, bool>> filter) => DbSet.Where(filter);
 
-		public void Add(T entity)
-		{
-			DbSet.Add(entity);
-		}
+		public void Add(T entity) => DbSet.Add(entity);
 
-		public void AddRange(IEnumerable<T> entities)
-		{
-			DbSet.AddRange(entities);
-		}
+		public void AddRange(IEnumerable<T> entities) => DbSet.AddRange(entities);
 
-		public async Task AddRangeAsync(IEnumerable<T> entities)
-		{
-			await DbSet.AddRangeAsync(entities);
-		}
+		public async Task AddRangeAsync(IEnumerable<T> entities) => await DbSet.AddRangeAsync(entities);
 
 		public void Delete(object id)
 		{
@@ -65,24 +52,12 @@ namespace WordProcessor.Data.Repositories.Generic
 			_databaseContext.Entry(entity).State = EntityState.Modified;
 		}
 
-		public void UpdateRange(IEnumerable<T> entities)
-		{
-			DbSet.UpdateRange(entities);
-		}
+		public void UpdateRange(IEnumerable<T> entities) => DbSet.UpdateRange(entities);
 
-		public int Count()
-		{
-			return DbSet.Count();
-		}
+		public int Count() => DbSet.Count();
 
-		public void RemoveAll()
-		{
-			DbSet.RemoveRange(DbSet);
-		}
+		public void RemoveAll() => DbSet.RemoveRange(DbSet);
 
-		public async Task CommitChangesAsync()
-		{
-			await _databaseContext.SaveChangesAsync();
-		}
+		public async Task CommitChangesAsync() => await _databaseContext.SaveChangesAsync();
 	}
 }

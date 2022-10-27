@@ -9,6 +9,9 @@ namespace WordProcessor.Data.Entities
 		public string Content { get; set; } = default!;
 
 		[Required]
+		public int Count { get; set; }
+
+		[Required]
 		public double Frequency { get; set; }
 	}
 }
