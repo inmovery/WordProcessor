@@ -8,6 +8,8 @@ using WordProcessor.Data.Contracts;
 using WordProcessor.Data.Entities;
 using WordProcessor.Data.Enum;
 using WordProcessor.Extensions;
+using static System.Net.Mime.MediaTypeNames;
+using System.Windows.Forms;
 
 namespace WordProcessor
 {
@@ -19,7 +21,6 @@ namespace WordProcessor
 		private readonly string[] _separatorList = { " ", "\v", "\n", "\r", "\r\n" };
 		private readonly IList<char> _punctuationSigns = new List<char>() { '.', ',', ':', ';', '!', '?', '@', '(', ')', '-', '–', '—', '=', '_', '*', '/', '\\', '|', '«', '»' };
 
-		private const char WhitespaceSymbol = ' ';
 		private const int ListBoxVerticalOffset = 20;
 		private const int ListBoxItemHorizontalOffset = 10;
 		private const int ListBoxItemVerticalOffset = 5;
@@ -72,7 +73,7 @@ namespace WordProcessor
 			var isSuitableWordLength = _wordInProcess.Length >= 3;
 			if (!isSuitableWordLength)
 			{
-				_hintList.Hide();
+				HideHintList();
 				return;
 			}
 
@@ -80,7 +81,7 @@ namespace WordProcessor
 			var isLetterWord = GetSummaryOfWordValidation(_wordInProcess);
 			if (!isLetterWord)
 			{
-				_hintList.Hide();
+				HideHintList();
 				return;
 			}
 
@@ -88,7 +89,7 @@ namespace WordProcessor
 			var isWordHintsExists = closeWords.Any();
 			if (!isWordHintsExists)
 			{
-				_hintList.Hide();
+				HideHintList();
 				return;
 			}
 
@@ -157,7 +158,7 @@ namespace WordProcessor
 		/// <returns></returns>
 		private bool CheckWhetherSymbolIsEmptyOrLast(char afterCursorPosition)
 		{
-			var isAfterWhitespaceOrEmpty = afterCursorPosition.Equals(WhitespaceSymbol) || afterCursorPosition.Equals('\0');
+			var isAfterWhitespaceOrEmpty = char.IsWhiteSpace(afterCursorPosition) || afterCursorPosition.Equals('\0');
 			var whetherCursorPositionIsLast = CheckWhetherCursorPositionIsLast();
 
 			return isAfterWhitespaceOrEmpty || whetherCursorPositionIsLast;
@@ -194,11 +195,7 @@ namespace WordProcessor
 		/// <returns></returns>
 		private bool GetSummaryOfSymbolValidation(char symbol)
 		{
-			// ToDo: to imagine some approach to validation single symbol
-			var isLatin = true;
-			var isCyrillic = true;
-
-			return isLatin && isCyrillic;
+			return char.IsLetter(symbol);
 		}
 
 		/// <summary>
@@ -251,6 +248,12 @@ namespace WordProcessor
 			_hintList.Location = hintListPosition;
 			_hintList.WordInFilter = _wordInProcess;
 
+			// var upperLeftCornerPosition = RichTextBox.Location;
+			// var richTextBoxMaxYCoordinate = upperLeftCornerPosition.Y + RichTextBox.Height;
+			// var hintListMaxYCoordinate = _hintList.Location.Y + _hintList.Size.Height;
+			// ToDo: compare hintListMaxYCoordinate and richTextBoxMaxYCoordinate
+
+
 			_hintList.Size = new Size(listWidth, listHeight);
 			_hintList.SelectedValueChanged += ListOnSelectedValueChanged;
 
@@ -272,8 +275,8 @@ namespace WordProcessor
 		/// <param name="eventArgs"></param>
 		private void ListOnSelectedValueChanged(object? sender, EventArgs eventArgs)
 		{
-			var needPerformKeyboardAction = _lastKeyboardAction is KeyboardAction.Enter or KeyboardAction.None;
-			if (!needPerformKeyboardAction)
+			var whetherLastActionIsUpOrDown = _lastKeyboardAction is KeyboardAction.Up or KeyboardAction.Down;
+			if (whetherLastActionIsUpOrDown)
 				return;
 
 			var listBoxEx = sender as ListBoxEx;
@@ -283,6 +286,30 @@ namespace WordProcessor
 
 			var formattedInsertion = $"{selectedWord} ";
 			ReplaceWordInProcess(formattedInsertion);
+		}
+
+		/// <summary>
+		/// Validate symbol after cursor position with considering symbol before cursor position
+		/// </summary>
+		/// <param name="symbolAfterCursorPosition"></param>
+		/// <param name="symbolBeforeCursorPosition"></param>
+		private void ValidateSymbolAfterCursorPosition(char symbolAfterCursorPosition, char symbolBeforeCursorPosition)
+		{
+			var whetherSymbolBeforeCursorPositionIsEndOfLine = _separatorList[1..].Contains(symbolBeforeCursorPosition.ToString());
+			var whetherSymbolIsEmptyOrLast = CheckWhetherSymbolIsEmptyOrLast(symbolAfterCursorPosition);
+			var isAfterPunctuation = CheckWhetherSymbolIsPunctuation(symbolAfterCursorPosition);
+
+			var needProcessText = (whetherSymbolIsEmptyOrLast || isAfterPunctuation) && !whetherSymbolBeforeCursorPositionIsEndOfLine;
+			if (needProcessText)
+				ProcessText();
+			else
+				HideHintList();
+		}
+
+		private void HideHintList()
+		{
+			_hintList.Hide();
+			_hintList.Items.Clear();
 		}
 
 		/// <summary>
@@ -296,21 +323,21 @@ namespace WordProcessor
 			if (_hintItemApplied)
 			{
 				_hintItemApplied = false;
-				_hintList.Hide();
+				HideHintList();
 				return;
 			}
 
 			// Where was entered Whitespace key or applied selected item from hint list
 			if (_isLastInputWhitespace)
 			{
-				_hintList.Hide();
+				HideHintList();
 				return;
 			}
 
 			var text = RichTextBox.Text;
 			if (string.IsNullOrEmpty(text) || CursorPosition == 0)
 			{
-				_hintList.Hide();
+				HideHintList();
 				return;
 			}
 
@@ -321,25 +348,18 @@ namespace WordProcessor
 			if (!isLastOrSingleSymbol)
 				symbolAfterCursorPosition = text[CursorPosition];
 
-			var whetherSymbolBeforeCursorPositionIsEndOfLine = _separatorList[1..].Contains(symbolBeforeCursorPosition.ToString());
-
 			// Where was entered Backspace key
 			if (_isLastInputBackspace)
 			{
 				// Validate symbol before selection center
-				var isBeforeWhitespace = symbolBeforeCursorPosition.Equals(WhitespaceSymbol);
+				var isBeforeWhitespace = char.IsWhiteSpace(symbolBeforeCursorPosition);
 				if (isBeforeWhitespace)
 				{
-					_hintList.Hide();
+					HideHintList();
 					return;
 				}
 
-				// Validate symbol after cursor position
-				var isAfterPunctuation = CheckWhetherSymbolIsPunctuation(symbolAfterCursorPosition);
-				var whetherSymbolIsEmptyOrLast = CheckWhetherSymbolIsEmptyOrLast(symbolAfterCursorPosition);
-				var needProcessText = (whetherSymbolIsEmptyOrLast || isAfterPunctuation) && !whetherSymbolBeforeCursorPositionIsEndOfLine;
-				if (needProcessText)
-					ProcessText();
+				ValidateSymbolAfterCursorPosition(symbolAfterCursorPosition, symbolBeforeCursorPosition);
 			}
 			else
 			{
@@ -351,11 +371,7 @@ namespace WordProcessor
 				if (isDotOrCommaAsLastEntered && isSinglePrecedingWhitespace)
 					RichTextBox.UpdateText($" {symbolBeforeCursorPosition}", symbolBeforeCursorPosition.ToString(), CursorPosition - 2, CursorPosition);
 
-				var needProcessText = CheckWhetherSymbolIsEmptyOrLast(symbolAfterCursorPosition) && !whetherSymbolBeforeCursorPositionIsEndOfLine;
-				if (needProcessText)
-					ProcessText();
-				else
-					_hintList.Hide();
+				ValidateSymbolAfterCursorPosition(symbolAfterCursorPosition, symbolBeforeCursorPosition);
 			}
 		}
 
@@ -378,6 +394,10 @@ namespace WordProcessor
 				Keys.Enter => KeyboardAction.Enter,
 				_ => KeyboardAction.None
 			};
+
+			var isHintListEmpty = _hintList.Items.Count == 0;
+			if (isHintListEmpty)
+				return;
 
 			int newPointerPosition;
 			switch (_lastKeyboardAction)
@@ -430,7 +450,8 @@ namespace WordProcessor
 				return;
 			}
 
-			eventArgs.SuppressKeyPress = _lastKeyboardAction is KeyboardAction.Down or KeyboardAction.Up;
+			var isHintListEmpty = _hintList.Items.Count == 0;
+			eventArgs.SuppressKeyPress = (_lastKeyboardAction is KeyboardAction.Down or KeyboardAction.Up) && !isHintListEmpty;
 		}
 
 		/// <summary>
@@ -440,7 +461,7 @@ namespace WordProcessor
 		/// <param name="eventArgs"></param>
 		private void RichTextBox_Click(object sender, EventArgs eventArgs)
 		{
-			_hintList.Hide();
+			HideHintList();
 		}
 
 		/// <summary>
@@ -450,7 +471,7 @@ namespace WordProcessor
 		/// <param name="eventArgs"></param>
 		private void RichTextBox_Leave(object sender, EventArgs eventArgs)
 		{
-			_hintList.Hide();
+			HideHintList();
 		}
 
 		/// <summary>
@@ -463,7 +484,7 @@ namespace WordProcessor
 			// Where was entered left or right arrow
 			var isLastLeftOrRightKeyboardAction = _lastKeyboardAction is KeyboardAction.Left or KeyboardAction.Right;
 			if (isLastLeftOrRightKeyboardAction)
-				_hintList.Hide();
+				HideHintList();
 		}
 
 		/// <summary>
